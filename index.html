@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>تطبيق الخريطة المتقدم - شركة الوطنية الزراعية (الجوف)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet.js -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Rotate -->
+    <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
+    
+    <!-- Turf.js للحسابات الهندسية -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- خط Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Cairo', sans-serif; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        .leaflet-control-zoom { border: none !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; border-radius: 12px !important; overflow: hidden; }
+        .leaflet-control-zoom-in, .leaflet-control-zoom-out { background-color: #ffffff !important; color: #1e293b !important; border: none !important; }
+        .leaflet-control-layers { border: none !important; border-radius: 12px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important; font-family: 'Cairo', sans-serif !important; padding: 6px 10px !important; }
+        .compass-arrow { transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        
+        /* تصميم أيقونة قطرة الماء والحقول */
+        .well-pin-icon {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            border: 2px solid #ffffff;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .well-pin-icon span {
+            transform: rotate(45deg);
+            font-size: 11px;
+        }
+        .field-pin-icon {
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-800 h-screen w-screen overflow-hidden relative select-none">
+
+    <!-- ================= 1. شاشة تسجيل الدخول ================= -->
+    <div id="loginOverlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[5000] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-md border border-slate-100 relative overflow-hidden">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-blue-500/30 text-white">
+                    <i data-lucide="shield-check" class="w-8 h-8"></i>
+                </div>
+                <h2 class="text-2xl font-black text-slate-800">تسجيل الدخول</h2>
+                <p class="text-xs text-slate-500 mt-1">نظام إدارة مزارع وآبار الوطنية الزراعية</p>
+            </div>
+
+            <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">اسم المستخدم</label>
+                    <div class="relative">
+                        <i data-lucide="user" class="w-4 h-4 text-slate-400 absolute right-3 top-3"></i>
+                        <input type="text" id="usernameInput" required placeholder="Watania" class="w-full pr-10 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
+                    <div class="relative">
+                        <i data-lucide="lock" class="w-4 h-4 text-slate-400 absolute right-3 top-3"></i>
+                        <input type="password" id="passwordInput" required placeholder="••••••" class="w-full pr-10 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition">
+                    </div>
+                </div>
+
+                <div id="loginError" class="hidden text-xs text-red-600 font-bold bg-red-50 p-2.5 rounded-xl border border-red-100 text-center">
+                    اسم المستخدم أو كلمة المرور غير صحيحة!
+                </div>
+
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2">
+                    <i data-lucide="log-in" class="w-4 h-4"></i> دخول النظام
+                </button>
+            </form>
+
+            <div class="mt-4 pt-3 border-t border-slate-100 text-center">
+                <button onclick="toggleChangePassModal()" class="text-xs text-blue-600 hover:underline font-bold">
+                    تغيير كلمة المرور؟
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- نافذة تعديل كلمة المرور -->
+    <div id="changePassModal" class="hidden fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[5500] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border border-slate-100">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <i data-lucide="key-round" class="w-4 h-4 text-blue-600"></i> تعديل كلمة المرور
+                </h3>
+                <button onclick="toggleChangePassModal()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <form onsubmit="handleChangePassword(event)" class="space-y-3">
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">كلمة المرور الحالية</label>
+                    <input type="password" id="oldPassInput" required class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">كلمة المرور الجديدة</label>
+                    <input type="password" id="newPassInput" required class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold">
+                </div>
+                <div id="changePassMsg" class="hidden text-xs p-2 rounded-lg text-center font-bold"></div>
+                
+                <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 rounded-xl text-xs font-bold transition">
+                    حفظ التغييرات
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= 2. واجهة الخريطة والتحكم ================= -->
+    <div id="map"></div>
+
+    <!-- شريط التحكم العلوي -->
+    <div class="absolute top-4 right-4 left-4 md:left-auto md:w-96 z-[1000] flex flex-col gap-3 pointer-events-auto">
+        <div class="bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white/50 flex flex-col gap-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div class="flex items-center gap-2">
+                    <div class="bg-emerald-600 text-white p-2 rounded-xl shadow-md">
+                        <i data-lucide="sprout" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-slate-800 text-base leading-tight">الوطنية الزراعية</h1>
+                        <p class="text-xs text-slate-500">مشروع الجوف - الآبار والحقول</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button onclick="toggleSidePanel()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2 rounded-xl text-xs font-bold flex items-center gap-1 transition" title="قائمة الفلاتر والبحث">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="exportKML()" class="bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-xl text-xs font-bold flex items-center gap-1 shadow transition" title="تصدير KML">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- أزرار تحديد الموقع والتتبع -->
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="getLocation()" class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-xl font-bold text-xs shadow-md transition-all">
+                    <i data-lucide="crosshair" class="w-4 h-4"></i> تحديد موقعي
+                </button>
+                <button onclick="toggleWatch()" id="watchBtn" class="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white py-2 px-3 rounded-xl font-bold text-xs shadow-md transition-all">
+                    <i data-lucide="navigation" class="w-4 h-4"></i> تتبع مباشر
+                </button>
+            </div>
+
+            <!-- أدوات القياس -->
+            <div class="border-t border-slate-100 pt-2">
+                <span class="text-[11px] font-bold text-slate-400 block mb-1.5">أدوات القياس الهندسي:</span>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button onclick="setMeasureMode('distance')" id="btnMeasureDist" class="measure-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-blue-50 transition">
+                        <i data-lucide="ruler" class="w-4 h-4 mb-1 text-blue-600"></i>
+                        <span class="text-[10px] font-bold">مسافة</span>
+                    </button>
+                    <button onclick="setMeasureMode('area')" id="btnMeasureArea" class="measure-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-blue-50 transition">
+                        <i data-lucide="pentagon" class="w-4 h-4 mb-1 text-emerald-600"></i>
+                        <span class="text-[10px] font-bold">مساحة مضلع</span>
+                    </button>
+                    <button onclick="setMeasureMode('circle')" id="btnMeasureCircle" class="measure-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-blue-50 transition">
+                        <i data-lucide="circle-dot" class="w-4 h-4 mb-1 text-amber-600"></i>
+                        <span class="text-[10px] font-bold">مساحة دائرة</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- لوحة البحث والفلترة والعدادات (Side Panel) -->
+    <div id="sidePanel" class="fixed inset-y-0 right-0 w-80 md:w-96 bg-white/95 backdrop-blur-xl shadow-2xl z-[2000] transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col p-4 border-l border-slate-200">
+        <div class="flex justify-between items-center border-b pb-3 mb-3">
+            <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <i data-lucide="filter" class="w-4 h-4 text-emerald-600"></i> البحث والفلترة المتقدمة
+            </h2>
+            <button onclick="toggleSidePanel()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+
+        <!-- فلترة النوع: إظهار/إخفاء الآبار والحقول -->
+        <div class="bg-blue-50 p-3 rounded-xl border border-blue-200 mb-3 space-y-2 text-xs">
+            <h3 class="font-bold text-blue-900 mb-1 flex items-center gap-1">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i> تصفية الطبقات الرئيسية:
+            </h3>
+            <div class="grid grid-cols-2 gap-2">
+                <label class="flex items-center gap-1.5 cursor-pointer bg-white p-2 rounded-lg border border-blue-100 font-bold text-slate-800 shadow-sm">
+                    <input type="checkbox" id="chkShowWells" checked onchange="renderFarmData()" class="accent-blue-600 w-4 h-4">
+                    💧 إظهار الآبار (<span id="cnt-wells-type">0</span>)
+                </label>
+                <label class="flex items-center gap-1.5 cursor-pointer bg-white p-2 rounded-lg border border-blue-100 font-bold text-slate-800 shadow-sm">
+                    <input type="checkbox" id="chkShowFields" checked onchange="renderFarmData()" class="accent-emerald-600 w-4 h-4">
+                    🌿 إظهار الحقول (<span id="cnt-fields-type">0</span>)
+                </label>
+            </div>
+        </div>
+
+        <!-- البحث النصي والصوتي -->
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-slate-700 mb-1">بحث بالاسم أو رقم البئر/الحقل:</label>
+            <div class="flex space-x-2 space-x-reverse">
+                <input type="text" id="searchInput" placeholder="مثال: بئر 1 أو NP32..." class="flex-1 border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500" oninput="renderFarmData()">
+                <button onclick="startVoiceSearch()" id="micBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-xs shadow font-bold transition" title="بحث صوتي 🎤">🎤</button>
+            </div>
+            <p id="voiceStatus" class="text-[10px] text-rose-600 font-bold mt-1 hidden">جاري الاستماع...</p>
+        </div>
+
+        <!-- الفلاتر والعدادات الفعلية -->
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-3 space-y-2 text-xs">
+            <h3 class="font-bold text-slate-700 mb-1">الفلترة حسب المحصول (العدادات):</h3>
+            <label class="flex justify-between items-center cursor-pointer">
+                <span class="flex items-center"><input type="checkbox" value="الكل" checked onchange="toggleCropFilter('all', this)" class="ml-2 accent-emerald-600"> 🟢 إجمالي العناصر</span>
+                <span id="cnt-all" class="bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full font-bold">0</span>
+            </label>
+            <label class="flex justify-between items-center cursor-pointer">
+                <span class="flex items-center"><input type="checkbox" value="قمح" checked onchange="renderFarmData()" class="ml-2 accent-amber-600"> 🌾 قمح</span>
+                <span id="cnt-wheat" class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">0</span>
+            </label>
+            <label class="flex justify-between items-center cursor-pointer">
+                <span class="flex items-center"><input type="checkbox" value="طماطم" checked onchange="renderFarmData()" class="ml-2 accent-red-600"> 🍅 طماطم</span>
+                <span id="cnt-tomato" class="bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold">0</span>
+            </label>
+            <label class="flex justify-between items-center cursor-pointer">
+                <span class="flex items-center"><input type="checkbox" value="زيتون" checked onchange="renderFarmData()" class="ml-2 accent-green-600"> 🫒 زيتون</span>
+                <span id="cnt-olive" class="bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-bold">0</span>
+            </label>
+        </div>
+
+        <div class="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl mb-3 text-[11px] text-emerald-900 leading-snug">
+            💡 <b>إضافة نقطة جديدة:</b> انقر مباشرة على أي موقع في الخريطة لإضافة بئر أو حقل جديد وإدخال بياناته.
+        </div>
+
+        <div class="flex-1 overflow-y-auto border border-slate-200 rounded-xl p-2 bg-white">
+            <h4 class="text-[10px] font-bold text-slate-400 mb-2 uppercase">قائمة العناصر المطابقة</h4>
+            <div id="itemsList" class="space-y-1 text-xs"></div>
+        </div>
+    </div>
+
+    <!-- البوصلة التفاعلية -->
+    <div id="compassContainer" class="absolute bottom-10 right-4 z-[1000] flex flex-col items-center gap-1">
+        <button onclick="resetNorth()" title="إعادة التوجيه للشمال" class="bg-white/90 backdrop-blur-md p-3 rounded-full shadow-2xl border border-white/50 active:scale-90 transition-all flex items-center justify-center">
+            <svg id="compassSvg" class="w-10 h-10 compass-arrow" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="4"/>
+                <text x="50" y="22" text-anchor="middle" font-size="14" font-weight="bold" fill="#ef4444">N</text>
+                <path id="compassNeedleNorth" d="M50 25 L58 50 L50 45 L42 50 Z" fill="#ef4444" />
+                <path id="compassNeedleSouth" d="M50 75 L58 50 L50 45 L42 50 Z" fill="#94a3b8" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- بطاقة نتائج القياس الهندسي -->
+    <div class="absolute bottom-6 right-20 left-4 md:left-auto md:w-96 z-[1000]">
+        <div id="measureResultsCard" class="hidden bg-white/95 backdrop-blur-md border border-blue-200 p-3 rounded-2xl shadow-2xl flex flex-col gap-1.5">
+            <div class="flex justify-between items-center border-b pb-1">
+                <span id="measureTypeTitle" class="text-xs font-bold text-blue-900 flex items-center gap-1">
+                    <i data-lucide="calculator" class="w-3.5 h-3.5"></i> نتائج القياس الهندسي
+                </span>
+                <button onclick="clearMeasurement()" class="text-[11px] text-red-600 hover:underline font-bold flex items-center gap-0.5">
+                    <i data-lucide="trash-2" class="w-3 h-3"></i> مسح القياس
+                </button>
+            </div>
+            <div id="measureValues" class="text-xs text-slate-800 space-y-1 font-bold"></div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // =============== 1. تسجيل الدخول ===============
+        const DEFAULT_USER = "Watania";
+        const DEFAULT_PASS = "121212";
+
+        function getStoredPassword() { return localStorage.getItem("watania_map_pass") || DEFAULT_PASS; }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const user = document.getElementById("usernameInput").value.trim();
+            const pass = document.getElementById("passwordInput").value.trim();
+
+            if (user === DEFAULT_USER && pass === getStoredPassword()) {
+                document.getElementById("loginOverlay").classList.add("hidden");
+            } else {
+                document.getElementById("loginError").classList.remove("hidden");
+            }
+        }
+
+        function toggleChangePassModal() { document.getElementById("changePassModal").classList.toggle("hidden"); }
+
+        function handleChangePassword(e) {
+            e.preventDefault();
+            const oldPass = document.getElementById("oldPassInput").value.trim();
+            const newPass = document.getElementById("newPassInput").value.trim();
+            const msg = document.getElementById("changePassMsg");
+
+            if (oldPass !== getStoredPassword()) {
+                msg.className = "text-xs p-2 rounded-lg text-center font-bold bg-red-50 text-red-600 block";
+                msg.innerText = "كلمة المرور الحالية غير صحيحة!";
+                return;
+            }
+
+            localStorage.setItem("watania_map_pass", newPass);
+            msg.className = "text-xs p-2 rounded-lg text-center font-bold bg-emerald-50 text-emerald-600 block";
+            msg.innerText = "تم تغيير كلمة المرور بنجاح!";
+            setTimeout(() => { toggleChangePassModal(); msg.classList.add("hidden"); }, 1200);
+        }
+
+        // =============== 2. الخريطة والطبقات ===============
+        const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+        const streetMap = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', { maxZoom: 20 });
+
+        let map = L.map('map', { 
+            zoomControl: false,
+            layers: [satelliteMap],
+            rotate: true,
+            touchRotate: true,
+            rotateControl: false
+        }).setView([29.980, 38.528], 12);
+
+        // إنشاء مجموعات طبقات مستقلة للتحكم في العرض
+        let wellsLayerGroup = L.layerGroup().addTo(map);
+        let fieldsLayerGroup = L.layerGroup().addTo(map);
+        let drawLayerGroup = L.layerGroup().addTo(map);
+
+        const baseMaps = { "🛰️ قمر صناعي": satelliteMap, "🗺️ شوارع": streetMap };
+        const overlayMaps = { "💧 الآبار": wellsLayerGroup, "🌿 الحقول والرشاشات": fieldsLayerGroup };
+        L.control.layers(baseMaps, overlayMaps, { position: 'topleft' }).addTo(map);
+        L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+        // =============== 3. قاعدة البيانات الشاملة الـ 196 بئراً بالإضافة إلى مواقع الـ KMZ ===============
+        const savedWellsCustom = JSON.parse(localStorage.getItem('nat_custom_wells') || 'null');
+        const excelWellsData = savedWellsCustom || [{"id": "1", "ph": "الاول", "depth": "302", "well": "1", "pivot": "A57-A58", "crop": "Intensive Olive", "area": "101", "engine": "V.M", "model": "-", "lat": 29.907263, "lng": 38.580002}, {"id": "2", "ph": "الاول", "depth": "302", "well": "2", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.911, "lng": 38.573628}, {"id": "3", "ph": "الاول", "depth": "302", "well": "3", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.890678, "lng": 38.581158}, {"id": "4", "ph": "الاول", "depth": "302", "well": "4", "pivot": "A01-A02", "crop": "Intensive Olive", "area": "130", "engine": "-", "model": "-", "lat": 29.898011, "lng": 38.567198}, {"id": "5", "ph": "الاول", "depth": "302", "well": "5", "pivot": "A03-A04", "crop": "Intensive Olive", "area": "133", "engine": "-", "model": "-", "lat": 29.896769, "lng": 38.553623}, {"id": "6", "ph": "الاول", "depth": "302", "well": "6", "pivot": "B03-B05", "crop": "WHEAT", "area": "46,42", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.907656, "lng": 38.556349}, {"id": "7", "ph": "الاول", "depth": "302", "well": "7", "pivot": "A05", "crop": "Intensive Olive", "area": "133", "engine": "-", "model": "-", "lat": 29.905069, "lng": 38.538458}, {"id": "8", "ph": "الاول", "depth": "302", "well": "8", "pivot": "B04", "crop": "WHEAT,Tred. Olive", "area": "44-03", "engine": "ENGINE", "model": "-", "lat": 29.918867, "lng": 38.561358}, {"id": "9", "ph": "الاول", "depth": "302", "well": "9", "pivot": "C07", "crop": "WHEAT", "area": "27", "engine": "ENGINE", "model": "VOLVO", "lat": 29.923061, "lng": 38.553744}, {"id": "10", "ph": "الاول", "depth": "302", "well": "10", "pivot": "A54-A55", "crop": "Intensive Olive", "area": "65", "engine": "-", "model": "-", "lat": 29.930247, "lng": 38.566244}, {"id": "11", "ph": "الاول", "depth": "302", "well": "11", "pivot": "A53", "crop": "Intensive Olive", "area": "67", "engine": "-", "model": "-", "lat": 29.938386, "lng": 38.564353}, {"id": "12", "ph": "الاول", "depth": "302", "well": "12", "pivot": "B07", "crop": "WHEAT", "area": "39", "engine": "ENGINE", "model": "VOLVO", "lat": 29.913824, "lng": 38.540622}, {"id": "13", "ph": "الاول", "depth": "302", "well": "13", "pivot": "A07-08", "crop": "Intensive Olive", "area": "134", "engine": "-", "model": "-", "lat": 29.913419, "lng": 38.523117}, {"id": "14", "ph": "الاول", "depth": "302", "well": "14", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.921831, "lng": 38.507751}, {"id": "15", "ph": "الاول", "depth": "302", "well": "15", "pivot": "B13", "crop": "Intensive Olive", "area": "66", "engine": "-", "model": "-", "lat": 29.923883, "lng": 38.525396}, {"id": "16", "ph": "الاول", "depth": "302", "well": "16", "pivot": "B15-B11", "crop": "Intensive Olive", "area": "127", "engine": "-", "model": "-", "lat": 29.926789, "lng": 38.5172}, {"id": "17", "ph": "الاول", "depth": "302", "well": "17", "pivot": "B08", "crop": "WHEAT", "area": "24", "engine": "V.MOTOR", "model": "VM CHINA", "lat": 29.928583, "lng": 38.5434}, {"id": "18", "ph": "الاول", "depth": "302", "well": "18", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.932258, "lng": 38.536961}, {"id": "19", "ph": "الاول", "depth": "302", "well": "19", "pivot": "C04-C06", "crop": "WHEAT", "area": "24,41", "engine": "ENGINE,V.M", "model": "CAT-3412,VM MAXICO", "lat": 29.942678, "lng": 38.551147}, {"id": "20", "ph": "الاول", "depth": "302", "well": "20", "pivot": "D01-D03", "crop": "WHEAT", "area": "47,47", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.949114, "lng": 38.554256}, {"id": "21", "ph": "الاول", "depth": "302", "well": "21", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.902514, "lng": 38.56126}, {"id": "22", "ph": "الاول", "depth": "302", "well": "22", "pivot": "A58-A01", "crop": "Tred. Olive", "area": "8.23", "engine": "-", "model": "-", "lat": 29.900439, "lng": 38.579086}, {"id": "23", "ph": "الاول", "depth": "302", "well": "23", "pivot": "C05", "crop": "WHEAT", "area": "42", "engine": "ENGINE", "model": "VOLVO", "lat": 29.927186, "lng": 38.548247}, {"id": "24", "ph": "الاول", "depth": "302", "well": "24", "pivot": "C03-C01", "crop": "WHEAT,Tred. Olive", "area": "47- 03", "engine": "ENGINE", "model": "VOLVO", "lat": 29.926397, "lng": 38.559244}, {"id": "25", "ph": "الاول", "depth": "302", "well": "25", "pivot": "A56", "crop": "Intensive Olive", "area": "67", "engine": "-", "model": "-", "lat": 29.925786, "lng": 38.567819}, {"id": "26", "ph": "الاول", "depth": "302", "well": "26", "pivot": "B14", "crop": "WHEAT", "area": "26", "engine": "ENGINE", "model": "VOLVO", "lat": 29.939339, "lng": 38.521822}, {"id": "27", "ph": "الاول", "depth": "302", "well": "27", "pivot": "C09-C11", "crop": "TOMATO,WHEAT", "area": "34,36", "engine": "ENGINE", "model": "-", "lat": 29.941156, "lng": 38.527344}, {"id": "28", "ph": "الاول", "depth": "302", "well": "28", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.934494, "lng": 38.527853}, {"id": "29", "ph": "الاول", "depth": "302", "well": "29", "pivot": "C08", "crop": "WHEAT", "area": "49", "engine": "ENGUNE", "model": "CUMMINS", "lat": 29.949172, "lng": 38.540878}, {"id": "30", "ph": "الاول", "depth": "302", "well": "30", "pivot": "D07", "crop": "WHEAT", "area": "51", "engine": "ENGINE", "model": "VOLVO", "lat": 29.952186, "lng": 38.535383}, {"id": "31", "ph": "الاول", "depth": "302", "well": "31", "pivot": "C10", "crop": "WHEAT", "area": "53", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.955108, "lng": 38.529797}, {"id": "32", "ph": "الاول", "depth": "302", "well": "32", "pivot": "A09-A10", "crop": "Intensive Olive", "area": "136", "engine": "-", "model": "-", "lat": 29.928547, "lng": 38.510869}, {"id": "33", "ph": "الاول", "depth": "302", "well": "33", "pivot": "A11", "crop": "Intensive Olive", "area": "96", "engine": "-", "model": "-", "lat": 29.935482, "lng": 38.495472}, {"id": "34", "ph": "الاول", "depth": "302", "well": "34", "pivot": "F01-F02", "crop": "Intensive Olive", "area": "128", "engine": "-", "model": "-", "lat": 29.935506, "lng": 38.501378}, {"id": "35", "ph": "الاول", "depth": "302", "well": "35", "pivot": "F03-F05", "crop": "TOMATO,TOMATO", "area": "47,41", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.945286, "lng": 38.516067}, {"id": "36", "ph": "الاول", "depth": "302", "well": "36", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.947997, "lng": 38.510669}, {"id": "37", "ph": "الاول", "depth": "302", "well": "37", "pivot": "F04-F06", "crop": "WHEAT", "area": "29,37", "engine": "ENGINE", "model": "VOLVO", "lat": 29.950064, "lng": 38.505158}, {"id": "38", "ph": "الاول", "depth": "302", "well": "38", "pivot": "F07-F08", "crop": "WHEAT", "area": "49,47", "engine": "V.M", "model": "MAXICO", "lat": 29.960772, "lng": 38.519614}, {"id": "39", "ph": "الاول", "depth": "302", "well": "39", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.966606, "lng": 38.525325}, {"id": "40", "ph": "الاول", "depth": "302", "well": "40", "pivot": "F12-F14", "crop": "WHEAT", "area": "34,34", "engine": "V.M US", "model": "US", "lat": 29.976383, "lng": 38.525103}, {"id": "41", "ph": "الاول", "depth": "302", "well": "41", "pivot": "F11-F13", "crop": "TOMATO,TOMATO", "area": "39,47", "engine": "V.M", "model": "MAXICO", "lat": 29.974531, "lng": 38.530003}, {"id": "42", "ph": "الاول", "depth": "302", "well": "42", "pivot": "D06-E01", "crop": "TOMATO,TOMATO", "area": "47,44", "engine": "VM", "model": "MAXICO", "lat": 29.970386, "lng": 38.53725}, {"id": "43", "ph": "الاول", "depth": "302", "well": "43", "pivot": "D04,D2-L6,C7,C10", "crop": "WHEAT,Tred. Olive", "area": "39,12", "engine": "ENGINE", "model": "VOLVO", "lat": 29.963094, "lng": 38.543}, {"id": "44", "ph": "الاول", "depth": "302", "well": "44", "pivot": "A49", "crop": "Intensive Olive", "area": "67", "engine": "-", "model": "-", "lat": 29.971425, "lng": 38.556534}, {"id": "45", "ph": "الاول", "depth": "302", "well": "45", "pivot": "A52", "crop": "Intensive Olive", "area": "67", "engine": "-", "model": "-", "lat": 29.944989, "lng": 38.563789}, {"id": "46", "ph": "الاول", "depth": "302", "well": "46", "pivot": "A50-A51", "crop": "Intensive Olive", "area": "134", "engine": "-", "model": "-", "lat": 29.961414, "lng": 38.564794}, {"id": "47", "ph": "الاول", "depth": "302", "well": "47", "pivot": "D02", "crop": "WHEAT", "area": "36", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.959037, "lng": 38.556377}, {"id": "48", "ph": "الاول", "depth": "302", "well": "48", "pivot": "A47-48", "crop": "Intensive Olive", "area": "100", "engine": "-", "model": "-", "lat": 29.978486, "lng": 38.55387}, {"id": "49", "ph": "الاول", "depth": "302", "well": "49", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.986367, "lng": 38.551031}, {"id": "50", "ph": "الاول", "depth": "302", "well": "50", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.99387, "lng": 38.548283}, {"id": "51", "ph": "الاول", "depth": "302", "well": "51", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.937719, "lng": 38.486041}, {"id": "52", "ph": "الاول", "depth": "302", "well": "52", "pivot": "F16-F18", "crop": "WHEAT", "area": "28,42", "engine": "ENGINE", "model": "VOLVO", "lat": 29.990069, "lng": 38.533136}, {"id": "53", "ph": "الاول", "depth": "302", "well": "53", "pivot": "F15", "crop": "WHEAT", "area": "43", "engine": "ENGINE", "model": "VOLVO", "lat": 29.987497, "lng": 38.539239}, {"id": "54", "ph": "الاول", "depth": "302", "well": "54", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.002542, "lng": 38.541028}, {"id": "55", "ph": "الاول", "depth": "302", "well": "55", "pivot": "A45B -A46B", "crop": "Tred. Olive", "area": "110", "engine": "-", "model": "-", "lat": 30.006219, "lng": 38.548247}, {"id": "56", "ph": "الاول", "depth": "302", "well": "56", "pivot": "G16-G17", "crop": "WHEAT", "area": "38,38", "engine": "ENGINE", "model": "VOLVO", "lat": 29.997711, "lng": 38.524933}, {"id": "57", "ph": "الاول", "depth": "302", "well": "57", "pivot": "G18", "crop": "WHEAT", "area": "45", "engine": "ENGINE", "model": "CUMMINS", "lat": 30.002178, "lng": 38.5191}, {"id": "58", "ph": "الاول", "depth": "302", "well": "58", "pivot": "G14-G13", "crop": "WHEAT,Intensive Olive", "area": "31-64", "engine": "ENGINE", "model": "VOLVO", "lat": 29.987178, "lng": 38.518772}, {"id": "59", "ph": "الاول", "depth": "302", "well": "59", "pivot": "G15", "crop": "Intensive Olive", "area": "64", "engine": "-", "model": "-", "lat": 29.98465, "lng": 38.5259}, {"id": "60", "ph": "الاول", "depth": "302", "well": "60", "pivot": "G10-G12", "crop": "Intensive Olive", "area": "128", "engine": "-", "model": "-", "lat": 29.981219, "lng": 38.506561}, {"id": "61", "ph": "الاول", "depth": "302", "well": "61", "pivot": "G09-G11", "crop": "Intensive Olive", "area": "128", "engine": "-", "model": "-", "lat": 29.974258, "lng": 38.510903}, {"id": "62", "ph": "الاول", "depth": "302", "well": "62", "pivot": "G08", "crop": "Intensive Olive", "area": "64", "engine": "-", "model": "-", "lat": 29.967156, "lng": 38.504392}, {"id": "63", "ph": "الاول", "depth": "302", "well": "63", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.964192, "lng": 38.512175}, {"id": "64", "ph": "الاول", "depth": "302", "well": "64", "pivot": "G06", "crop": "Intensive Olive", "area": "64", "engine": "-", "model": "-", "lat": 29.962206, "lng": 38.490508}, {"id": "65", "ph": "الاول", "depth": "302", "well": "65", "pivot": "G05", "crop": "Intensive Olive", "area": "64", "engine": "-", "model": "-", "lat": 29.954361, "lng": 38.496144}, {"id": "66", "ph": "الاول", "depth": "302", "well": "66", "pivot": "G01-G02", "crop": "WHEAT", "area": "50,34", "engine": "ENGINE", "model": "-", "lat": 29.947239, "lng": 38.490156}, {"id": "67", "ph": "الاول", "depth": "302", "well": "67", "pivot": "F01-F02", "crop": "Intensive Olive", "area": "128", "engine": "-", "model": "-", "lat": 29.944553, "lng": 38.497147}, {"id": "68", "ph": "الاول", "depth": "302", "well": "68", "pivot": "A14-A15", "crop": "WHEAT", "area": "26,34", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.943131, "lng": 38.468761}, {"id": "69", "ph": "الاول", "depth": "302", "well": "69", "pivot": "H01-H03", "crop": "WHEAT", "area": "30,36", "engine": "ENGINE", "model": "TAD1641", "lat": 29.953356, "lng": 38.472997}, {"id": "70", "ph": "الاول", "depth": "302", "well": "70", "pivot": "A16", "crop": "WHEAT", "area": "40", "engine": "ENGINE", "model": "VOLVO", "lat": 29.951564, "lng": 38.464194}, {"id": "71", "ph": "الاول", "depth": "302", "well": "71", "pivot": "H05-H06", "crop": "TOMATO,TOMATO", "area": "34,36", "engine": "V.M", "model": "US", "lat": 29.960475, "lng": 38.467433}, {"id": "72", "ph": "الاول", "depth": "302", "well": "72", "pivot": "A17-H07", "crop": "WHEAT", "area": "34,28", "engine": "ENGINE", "model": "VOLVO", "lat": 29.961103, "lng": 38.451514}, {"id": "73", "ph": "الاول", "depth": "302", "well": "73", "pivot": "A18-A19", "crop": "TOMATO,TOMATO", "area": "34,34", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.9598, "lng": 38.438157}, {"id": "74", "ph": "الاول", "depth": "302", "well": "74", "pivot": "H09-H11", "crop": "WHEAT", "area": "34,33", "engine": "ENGINE", "model": "VOLVO", "lat": 29.970028, "lng": 38.442383}, {"id": "75", "ph": "الاول", "depth": "302", "well": "75", "pivot": "A20-H13", "crop": "TOMATO,TOMATO", "area": "33,34", "engine": "ENGINE", "model": "VOLVO", "lat": 29.973071, "lng": 38.428475}, {"id": "76", "ph": "الاول", "depth": "302", "well": "76", "pivot": "A21-A22", "crop": "TOMATO,TOMATO", "area": "32,34", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.975991, "lng": 38.417825}, {"id": "77", "ph": "الاول", "depth": "302", "well": "77", "pivot": "A24-A25", "crop": "Tred. Olive", "area": "50", "engine": "-", "model": "-", "lat": 29.984358, "lng": 38.408579}, {"id": "78", "ph": "الاول", "depth": "302", "well": "78", "pivot": "P01-P04", "crop": "TOMATO,TOMATO", "area": "36,50", "engine": "ENGINE", "model": "VOLVO", "lat": 29.985856, "lng": 38.422378}, {"id": "79", "ph": "الاول", "depth": "302", "well": "79", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.996717, "lng": 38.417428}, {"id": "80", "ph": "الاول", "depth": "302", "well": "80", "pivot": "P06-P08", "crop": "TOMATO,TOMATO", "area": "42,42", "engine": "ENGINE", "model": "VOLVO", "lat": 29.999217, "lng": 38.427103}, {"id": "81", "ph": "الاول", "depth": "302", "well": "81", "pivot": "A28-A31", "crop": "Tred. Olive", "area": "82", "engine": "-", "model": "-", "lat": 30.008803, "lng": 38.426272}, {"id": "82", "ph": "الاول", "depth": "302", "well": "82", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.011556, "lng": 38.435947}, {"id": "83", "ph": "الاول", "depth": "302", "well": "83", "pivot": "H08-H10", "crop": "WHEAT", "area": "47,36", "engine": "ENGINE", "model": "VOLVO", "lat": 29.976842, "lng": 38.452458}, {"id": "84", "ph": "الاول", "depth": "302", "well": "84", "pivot": "J07-J09", "crop": "TOMATO,TOMATO", "area": "34,34", "engine": "ENGINE", "model": "VOLVO", "lat": 29.978561, "lng": 38.459136}, {"id": "85", "ph": "الاول", "depth": "302", "well": "85", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.973667, "lng": 38.465608}, {"id": "86", "ph": "الاول", "depth": "302", "well": "86", "pivot": "J03-J05", "crop": "WHEAT", "area": "34,46", "engine": "V.M", "model": "MAXICO", "lat": 29.968989, "lng": 38.474225}, {"id": "87", "ph": "الاول", "depth": "302", "well": "87", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.968869, "lng": 38.484106}, {"id": "88", "ph": "الاول", "depth": "302", "well": "88", "pivot": "H02,J01", "crop": "WHEAT", "area": "34,47", "engine": "ENGINE", "model": "VOLVO", "lat": 29.961436, "lng": 38.482592}, {"id": "89", "ph": "الاول", "depth": "302", "well": "89", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.021453, "lng": 38.435119}, {"id": "90", "ph": "الاول", "depth": "302", "well": "90", "pivot": "P12,P14", "crop": "Tred. Olive", "area": "100", "engine": "-", "model": "-", "lat": 30.024042, "lng": 38.442436}, {"id": "91", "ph": "الاول", "depth": "302", "well": "91", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.030803, "lng": 38.445247}, {"id": "92", "ph": "الاول", "depth": "302", "well": "92", "pivot": "P03,P05", "crop": "TOMATO,TOMATO", "area": "34,34", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.991861, "lng": 38.432606}, {"id": "93", "ph": "الاول", "depth": "302", "well": "93", "pivot": "N04,N06", "crop": "TOMATO,TOMATO", "area": "39,36", "engine": "ENGINE", "model": "VOLVO", "lat": 29.998372, "lng": 38.445158}, {"id": "94", "ph": "الاول", "depth": "302", "well": "94", "pivot": "P07,P09", "crop": "TOMATO,TOMATO", "area": "32,36", "engine": "V.M", "model": "OLD MAXICO", "lat": 30.004264, "lng": 38.441486}, {"id": "95", "ph": "الاول", "depth": "302", "well": "95", "pivot": "N08,P11", "crop": "WHEAT", "area": "47,29", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.010542, "lng": 38.450625}, {"id": "96", "ph": "الاول", "depth": "302", "well": "96", "pivot": "N10,N12", "crop": "WHEAT", "area": "36,34", "engine": "ENGINE", "model": "VOLVO", "lat": 30.016908, "lng": 38.458433}, {"id": "97", "ph": "الاول", "depth": "302", "well": "97", "pivot": "A33,A34,N11,N12-P13,P14", "crop": "TOMATO,TOMATO,Tred. Olive", "area": "34,36,42", "engine": "ENGINE", "model": "VOLVO", "lat": 30.0283, "lng": 38.461124}, {"id": "98", "ph": "الاول", "depth": "302", "well": "98", "pivot": "N01.N02", "crop": "WHEAT", "area": "27,47", "engine": "ENGINE", "model": "VOLVO", "lat": 29.987711, "lng": 38.443447}, {"id": "99", "ph": "الاول", "depth": "302", "well": "99", "pivot": "N03,N05", "crop": "WHEAT", "area": "26,26", "engine": "ENGINE", "model": "-", "lat": 29.997253, "lng": 38.455119}, {"id": "100", "ph": "الاول", "depth": "302", "well": "100", "pivot": "M02,M04", "crop": "WHEAT", "area": "34,36", "engine": "ENGINE", "model": "VOLVO", "lat": 29.994975, "lng": 38.461369}, {"id": "101", "ph": "الاول", "depth": "302", "well": "101", "pivot": "N07,N09", "crop": "WHEAT", "area": "34,37", "engine": "V.M", "model": "MAXICO", "lat": 30.009478, "lng": 38.4642}, {"id": "102", "ph": "الاول", "depth": "302", "well": "102", "pivot": "M06,M08", "crop": "WHEAT", "area": "28,30", "engine": "ENGINE", "model": "VOLVO", "lat": 30.003242, "lng": 38.463967}, {"id": "103", "ph": "الاول", "depth": "302", "well": "103", "pivot": "M10,N11", "crop": "WHEAT", "area": "32,37", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.018056, "lng": 38.473464}, {"id": "104", "ph": "الاول", "depth": "302", "well": "104", "pivot": "A35,A36", "crop": "WHEAT", "area": "32,31", "engine": "V.M", "model": "OLD MAXICO", "lat": 30.024622, "lng": 38.477214}, {"id": "105", "ph": "الاول", "depth": "302", "well": "105", "pivot": "J10,M01", "crop": "WHEAT", "area": "28,36", "engine": "ENGINE", "model": "VOLVO", "lat": 29.987847, "lng": 38.466394}, {"id": "106", "ph": "الاول", "depth": "302", "well": "106", "pivot": "M03,M05", "crop": "WHEAT", "area": "47,38", "engine": "V.M", "model": "US", "lat": 30.000033, "lng": 38.475772}, {"id": "107", "ph": "الاول", "depth": "302", "well": "107", "pivot": "L04,L06", "crop": "WHEAT", "area": "37,43", "engine": "ENGINE", "model": "VOLVO", "lat": 29.997236, "lng": 38.481617}, {"id": "108", "ph": "الاول", "depth": "302", "well": "108", "pivot": "L08,M07", "crop": "TOMATO,TOMATO", "area": "43,47", "engine": "ENGINE", "model": "VOLVO", "lat": 30.008808, "lng": 38.485758}, {"id": "109", "ph": "الاول", "depth": "302", "well": "109", "pivot": "A37,A38", "crop": "TOMATO,TOMATO", "area": "34,26", "engine": "V.M", "model": "US", "lat": 30.020389, "lng": 38.493364}, {"id": "110", "ph": "الاول", "depth": "302", "well": "110", "pivot": "J08,L02", "crop": "WHEAT", "area": "47,34", "engine": "ENGINE", "model": "VOLVO", "lat": 29.983797, "lng": 38.474258}, {"id": "111", "ph": "الاول", "depth": "302", "well": "111", "pivot": "J04,J06", "crop": "WHEAT", "area": "47,34", "engine": "V.M", "model": "US", "lat": 29.976558, "lng": 38.482344}, {"id": "112", "ph": "الاول", "depth": "302", "well": "112", "pivot": "K03,K05", "crop": "WHEAT", "area": "34,36", "engine": "ENGINE", "model": "VOLVO", "lat": 29.984558, "lng": 38.498539}, {"id": "113", "ph": "الاول", "depth": "302", "well": "113", "pivot": "L01,L03", "crop": "WHEAT", "area": "34,26", "engine": "ENGINE", "model": "VOLVO", "lat": 29.98935, "lng": 38.487111}, {"id": "114", "ph": "الاول", "depth": "302", "well": "114", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.996414, "lng": 38.50005}, {"id": "115", "ph": "الاول", "depth": "302", "well": "115", "pivot": "L07", "crop": "WHEAT", "area": "37", "engine": "ENGINE", "model": "VOLVO", "lat": 30.001711, "lng": 38.495989}, {"id": "116", "ph": "الاول", "depth": "302", "well": "116", "pivot": "L09,L10", "crop": "TOMATO,TOMATO", "area": "47,47", "engine": "V.M", "model": "US", "lat": 30.012642, "lng": 38.497778}, {"id": "117", "ph": "الاول", "depth": "302", "well": "117", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.016444, "lng": 38.509439}, {"id": "118", "ph": "الاول", "depth": "302", "well": "118", "pivot": "K01,K02", "crop": "WHEAT", "area": "50,47", "engine": "V.M", "model": "MAXICO", "lat": 29.977236, "lng": 38.490867}, {"id": "119", "ph": "الاول", "depth": "302", "well": "119", "pivot": "K07,K09", "crop": "WHEAT", "area": "47,38", "engine": "ENGINE", "model": "VOLVO", "lat": 29.995239, "lng": 38.510017}, {"id": "120", "ph": "الاول", "depth": "302", "well": "120", "pivot": "K11,K10", "crop": "WHEAT,Tred. Olive", "area": "34,71", "engine": "ENGINE", "model": "VOLVO", "lat": 30.005883, "lng": 38.511697}, {"id": "121", "ph": "الاول", "depth": "302", "well": "121", "pivot": "A41,A42", "crop": "WHEAT", "area": "34,47", "engine": "V.M", "model": "US", "lat": 30.01245, "lng": 38.525564}, {"id": "122", "ph": "الاول", "depth": "302", "well": "122", "pivot": "P13,N11,N12,P14", "crop": "WHEAT,Tred. Olive", "area": "34,42", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.021992, "lng": 38.457786}, {"id": "123", "ph": "الاول", "depth": "302", "well": "123", "pivot": "K04,L05", "crop": "WHEAT", "area": "28,28", "engine": "V.M", "model": "US", "lat": 29.994095, "lng": 38.494069}, {"id": "124", "ph": "الاول", "depth": "302", "well": "124", "pivot": "A26,A27", "crop": "Tred. Olive", "area": "71", "engine": "-", "model": "-", "lat": 29.989111, "lng": 38.415619}, {"id": "125", "ph": "الاول", "depth": "302", "well": "125", "pivot": "M09,L9,L10-M10", "crop": "WHEAT,Tred. Olive", "area": "26,43", "engine": "V.M", "model": "US", "lat": 30.019331, "lng": 38.485881}, {"id": "126", "ph": "الاول", "depth": "302", "well": "126", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.970336, "lng": 38.5497}, {"id": "127", "ph": "الاول", "depth": "302", "well": "127", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.987417, "lng": 38.451736}, {"id": "128", "ph": "الاول", "depth": "302", "well": "128", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.981961, "lng": 38.429317}, {"id": "129", "ph": "الاول", "depth": "302", "well": "129", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.953397, "lng": 38.484046}, {"id": "130", "ph": "الاول", "depth": "302", "well": "130", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.923381, "lng": 38.576563}, {"id": "131", "ph": "الاول", "depth": "302", "well": "131", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.921153, "lng": 38.540619}, {"id": "132", "ph": "الاول", "depth": "302", "well": "132", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.893603, "lng": 38.574369}, {"id": "133", "ph": "الاول", "depth": "302", "well": "133", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.016736, "lng": 38.500681}, {"id": "134", "ph": "الاول", "depth": "302", "well": "134", "pivot": "A46", "crop": "-", "area": "104", "engine": "-", "model": "-", "lat": 30.002489, "lng": 38.553661}, {"id": "135", "ph": "الاول", "depth": "302", "well": "135", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.981703, "lng": 38.557311}, {"id": "136", "ph": "الاول", "depth": "302", "well": "136", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.955319, "lng": 38.566855}, {"id": "137", "ph": "الاول", "depth": "302", "well": "137", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.973972, "lng": 38.562582}, {"id": "138", "ph": "الاول", "depth": "302", "well": "CP- 10", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.973097, "lng": 38.439283}, {"id": "139", "ph": "الاول", "depth": "302", "well": "139", "pivot": "H12", "crop": "TOMATO", "area": "47", "engine": "ENGINE", "model": "VOLVO", "lat": 29.980947, "lng": 38.439508}, {"id": "140", "ph": "الاول", "depth": "302", "well": "140", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.976861, "lng": 38.447225}, {"id": "141", "ph": "الثاني", "depth": "302", "well": "1", "pivot": "NP14,NP17", "crop": "WHEAT", "area": "39,30", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.007817, "lng": 38.564789}, {"id": "142", "ph": "الثاني", "depth": "302", "well": "3", "pivot": "NP20,NP23", "crop": "WHEAT", "area": "37,40", "engine": "V.M", "model": "MAXICO", "lat": 30.027839, "lng": 38.571683}, {"id": "143", "ph": "الثاني", "depth": "302", "well": "4", "pivot": "NP22,NP25", "crop": "TOMATO", "area": "29,42", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.039536, "lng": 38.573647}, {"id": "144", "ph": "الثاني", "depth": "302", "well": "5", "pivot": "NP24,NP26", "crop": "WHEAT", "area": "28,43", "engine": "ENGINE", "model": "VOLVO", "lat": 30.047828, "lng": 38.577964}, {"id": "145", "ph": "الثاني", "depth": "302", "well": "6", "pivot": "NP12,NP13", "crop": "TOMATO", "area": "39,36", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.000544, "lng": 38.568439}, {"id": "146", "ph": "الثاني", "depth": "302", "well": "7", "pivot": "NP32,NP41", "crop": "WHEAT", "area": "39,43", "engine": "ENGINE", "model": "VOLVO", "lat": 30.014964, "lng": 38.581342}, {"id": "147", "ph": "الثاني", "depth": "302", "well": "8", "pivot": "NP34,NP45", "crop": "WHEAT", "area": "39,43", "engine": "ENGINE", "model": "-", "lat": 30.027469, "lng": 38.585461}, {"id": "148", "ph": "الثاني", "depth": "302", "well": "9", "pivot": "NP10,NP11", "crop": "TOMATO", "area": "36,33", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.994745, "lng": 38.575555}, {"id": "149", "ph": "الثاني", "depth": "302", "well": "10", "pivot": "NP07,NP08", "crop": "WHEAT", "area": "42,42", "engine": "ENGINE", "model": "-", "lat": 29.993069, "lng": 38.586047}, {"id": "150", "ph": "الثاني", "depth": "302", "well": "11", "pivot": "NP28,NP33", "crop": "TOMATO", "area": "43,43", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.001522, "lng": 38.598925}, {"id": "151", "ph": "الثاني", "depth": "302", "well": "12", "pivot": "NP35,NP37", "crop": "WHEAT", "area": "43,43", "engine": "ENGINE", "model": "VOLVO", "lat": 30.005567, "lng": 38.586356}, {"id": "152", "ph": "الثاني", "depth": "302", "well": "13", "pivot": "NP49,NP51", "crop": "WHEAT", "area": "31,31", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.013531, "lng": 38.59655}, {"id": "153", "ph": "الثاني", "depth": "302", "well": "14", "pivot": "NP05,NP06", "crop": "WHEAT", "area": "43,43", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.989983, "lng": 38.598119}, {"id": "154", "ph": "الثاني", "depth": "302", "well": "15", "pivot": "NP03,NP04", "crop": "TOMATO", "area": "39,39", "engine": "ENGINE", "model": "VOLVO", "lat": 29.987714, "lng": 38.606681}, {"id": "155", "ph": "الثاني", "depth": "302", "well": "16", "pivot": "NP29,NP31", "crop": "TOMATO", "area": "42,37", "engine": "ENGINE", "model": "VOLVO", "lat": 30.061192, "lng": 38.582139}, {"id": "156", "ph": "الثاني", "depth": "302", "well": "17", "pivot": "NP01,NP02", "crop": "WHEAT", "area": "28,28", "engine": "ENGINE", "model": "-", "lat": 29.985933, "lng": 38.613608}, {"id": "157", "ph": "الثاني", "depth": "302", "well": "18", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.004342, "lng": 38.576844}, {"id": "158", "ph": "الثاني", "depth": "302", "well": "19", "pivot": "NP36,NP47", "crop": "WHEAT", "area": "39,41", "engine": "ENGINE", "model": "VOLVO", "lat": 30.0364, "lng": 38.588706}, {"id": "159", "ph": "الثاني", "depth": "302", "well": "20", "pivot": "NP53,NP55", "crop": "WHEAT", "area": "42,32", "engine": "ENGINE", "model": "-", "lat": 30.020367, "lng": 38.598792}, {"id": "160", "ph": "الثاني", "depth": "302", "well": "21", "pivot": "NP50,NP52", "crop": "WHEAT", "area": "44,41", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.003617, "lng": 38.605856}, {"id": "161", "ph": "الثاني", "depth": "302", "well": "22", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.980883, "lng": 38.626225}, {"id": "162", "ph": "الثاني", "depth": "302", "well": "23", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.996117, "lng": 38.630039}, {"id": "163", "ph": "الثاني", "depth": "302", "well": "24", "pivot": "NP38,NP40", "crop": "WHEAT", "area": "38,30", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.057497, "lng": 38.588258}, {"id": "164", "ph": "الثاني", "depth": "302", "well": "25", "pivot": "NP42,NP44", "crop": "WHEAT", "area": "36,31", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.086136, "lng": 38.587267}, {"id": "165", "ph": "الثاني", "depth": "302", "well": "26", "pivot": "NP46,NP48", "crop": "WHEAT", "area": "43,32", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.081467, "lng": 38.594042}, {"id": "166", "ph": "الثاني", "depth": "302", "well": "27", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.009483, "lng": 38.627164}, {"id": "167", "ph": "الثاني", "depth": "302", "well": "28", "pivot": "NP30,NP39", "crop": "TOMATO", "area": "44,39", "engine": "ENGINE", "model": "CAT-3412", "lat": 30.00949, "lng": 38.579479}, {"id": "168", "ph": "الثاني", "depth": "302", "well": "29", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 30.048092, "lng": 38.600161}, {"id": "169", "ph": "الثاني", "depth": "302", "well": "2A", "pivot": "NP18,NP21", "crop": "WHEAT", "area": "43,32", "engine": "ENGINE", "model": "VOLVO", "lat": 30.019736, "lng": 38.567256}, {"id": "170", "ph": "الثاني", "depth": "302", "well": "2B", "pivot": "NP16,NP19", "crop": "WHEAT", "area": "39,39", "engine": "ENGINE", "model": "VOLVO", "lat": 30.013811, "lng": 38.5658}, {"id": "171", "ph": "الثالث", "depth": "302", "well": "8", "pivot": "A06,A07", "crop": "WHEAT", "area": "39,42", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.982525, "lng": 38.572961}, {"id": "172", "ph": "الثالث", "depth": "302", "well": "9", "pivot": "A08,A09", "crop": "WHEAT", "area": "42,43", "engine": "ENGINE", "model": "TAD1641", "lat": 29.970525, "lng": 38.576417}, {"id": "173", "ph": "الثالث", "depth": "302", "well": "10", "pivot": "A04,B03", "crop": "WHEAT", "area": "43,38", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.977633, "lng": 38.583575}, {"id": "174", "ph": "الثالث", "depth": "302", "well": "11", "pivot": "A02,A03", "crop": "WHEAT", "area": "43,42", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.975111, "lng": 38.595056}, {"id": "175", "ph": "الثالث", "depth": "302", "well": "12", "pivot": "A10,A11", "crop": "WHEAT", "area": "44,43", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.956883, "lng": 38.580389}, {"id": "176", "ph": "الثالث", "depth": "302", "well": "13", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.943594, "lng": 38.584231}, {"id": "177", "ph": "الثالث", "depth": "302", "well": "14", "pivot": "A14,A15", "crop": "WHEAT", "area": "36,43", "engine": "ENGINE", "model": "VOLVO", "lat": 29.930275, "lng": 38.588067}, {"id": "178", "ph": "الثالث", "depth": "302", "well": "15", "pivot": "A05,B01", "crop": "WHEAT", "area": "44,39", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.979103, "lng": 38.577622}, {"id": "179", "ph": "الثالث", "depth": "302", "well": "16", "pivot": "B05,B07", "crop": "WHEAT", "area": "31,44", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.971617, "lng": 38.598672}, {"id": "180", "ph": "الثالث", "depth": "302", "well": "17", "pivot": "B02,B04", "crop": "WHEAT", "area": "44,44", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.966539, "lng": 38.584711}, {"id": "181", "ph": "الثالث", "depth": "302", "well": "18", "pivot": "C01,C03", "crop": "WHEAT", "area": "C01,C03", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.961152, "lng": 38.587769}, {"id": "182", "ph": "الثالث", "depth": "302", "well": "19", "pivot": "B06,B08", "crop": "WHEAT", "area": "B06,B08", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.962794, "lng": 38.599897}, {"id": "183", "ph": "الثالث", "depth": "302", "well": "20", "pivot": "C05,C07", "crop": "WHEAT", "area": "C05,C07", "engine": "ENGINE", "model": "-", "lat": 29.957172, "lng": 38.602869}, {"id": "184", "ph": "الثالث", "depth": "302", "well": "21", "pivot": "C02,C04", "crop": "WHEAT", "area": "C02,C04", "engine": "ENGINE", "model": "VOLVO", "lat": 29.952097, "lng": 38.588919}, {"id": "185", "ph": "الثالث", "depth": "302", "well": "22", "pivot": "B10,C09", "crop": "WHEAT", "area": "B10,C09", "engine": "ENGINE", "model": "-", "lat": 29.957447, "lng": 38.612114}, {"id": "186", "ph": "الثالث", "depth": "302", "well": "23", "pivot": "A01,B09", "crop": "WHEAT", "area": "A01,B09", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.971522, "lng": 38.608186}, {"id": "187", "ph": "الثالث", "depth": "302", "well": "24", "pivot": "D01,D03", "crop": "WHEAT", "area": "D01,D03", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.946475, "lng": 38.591883}, {"id": "188", "ph": "الثالث", "depth": "302", "well": "25", "pivot": "C06,C08", "crop": "WHEAT", "area": "C06,C08", "engine": "ENGINE", "model": "VOLVO", "lat": 29.948353, "lng": 38.604049}, {"id": "189", "ph": "الثالث", "depth": "302", "well": "26", "pivot": "D05,D07", "crop": "WHEAT", "area": "D05,D07", "engine": "ENGINE", "model": "-", "lat": 29.94274, "lng": 38.607028}, {"id": "190", "ph": "الثالث", "depth": "302", "well": "27", "pivot": "D02,D04", "crop": "WHEAT", "area": "D02,D04", "engine": "ENGINE", "model": "TAD1641", "lat": 29.937656, "lng": 38.592778}, {"id": "191", "ph": "الثالث", "depth": "302", "well": "28", "pivot": "E01,E02", "crop": "WHEAT", "area": "E01,E02", "engine": "ENGINE", "model": "VOLVO", "lat": 29.931981, "lng": 38.596136}, {"id": "192", "ph": "الثالث", "depth": "302", "well": "29", "pivot": "D06,D08", "crop": "WHEAT", "area": "D06,D08", "engine": "ENGINE", "model": "-", "lat": 29.933925, "lng": 38.608219}, {"id": "193", "ph": "الثالث", "depth": "302", "well": "30", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.943089, "lng": 38.616397}, {"id": "194", "ph": "الثالث", "depth": "302", "well": "31", "pivot": "E04", "crop": "WHEAT", "area": "E04", "engine": "ENGINE", "model": "-", "lat": 29.921721, "lng": 38.592092}, {"id": "195", "ph": "الثالث", "depth": "302", "well": "32", "pivot": "E05", "crop": "WHEAT", "area": "E05", "engine": "ENGINE", "model": "CAT-3412", "lat": 29.911872, "lng": 38.598258}, {"id": "196", "ph": "الثالث", "depth": "302", "well": "33", "pivot": "-", "crop": "-", "area": "-", "engine": "-", "model": "-", "lat": 29.8982, "lng": 38.595325}];
+
+        // قائمة الـ 50 طماطم الافتراضية
+        let tomatoPivots = JSON.parse(localStorage.getItem('nat_tomato_list') || JSON.stringify([
+            "C09", "F03", "F05", "F11", "F13", "D06", "E01", "H05", "H06", "A18", "A19", "A20", "H13", "A21", "A22", 
+            "P01", "P04", "P06", "P08", "J07", "J09", "P03", "P05", "N04", "N06", "P07", "P09", "A33", "A34", "L08", 
+            "M07", "A37", "A38", "L09", "L10", "H12", "NP22", "NP25", "NP12", "NP13", "NP10", "NP11", "NP28", "NP33", 
+            "NP03", "NP04", "NP29", "NP31", "NP30", "NP39"
+        ]));
+
+        // مواقع KMZ والإكسل للحقول والرشاشات
+        let kmzExcelLocations = JSON.parse(localStorage.getItem('nat_kmz_locations') || JSON.stringify([
+          {"name": "NP32", "lat": 30.016816, "lng": 38.586658}, {"name": "NP41", "lat": 30.018878, "lng": 38.578756}, {"name": "PH3_A12", "lat": 29.945459, "lng": 38.579756}, {"name": "PH3-C10", "lat": 29.946712, "lng": 38.615871}, {"name": "PH3-C8", "lat": 29.948415, "lng": 38.608234},
+          {"name": "PH3-A4", "lat": 29.981182, "lng": 38.584666}, {"name": "PH3-A5", "lat": 29.983047, "lng": 38.577176}, {"name": "PH3-A6", "lat": 29.985448, "lng": 38.568310}, {"name": "PH3-A1", "lat": 29.975888, "lng": 38.607424}, {"name": "PH3-A2", "lat": 29.977583, "lng": 38.600253},
+          {"name": "PH3-A3", "lat": 29.979499, "lng": 38.592391}, {"name": "PH3-B3", "lat": 29.972828, "lng": 38.587305}, {"name": "PH3-A11", "lat": 29.952000, "lng": 38.577908}, {"name": "PH3-A10", "lat": 29.958704, "lng": 38.575912}, {"name": "PH3-A9", "lat": 29.965155, "lng": 38.573997},
+          {"name": "PH3-A8", "lat": 29.971927, "lng": 38.572069}, {"name": "PH3-A7", "lat": 29.978643, "lng": 38.570242}, {"name": "PH3-B1", "lat": 29.975057, "lng": 38.579426}, {"name": "PH3-B5", "lat": 29.971550, "lng": 38.594581}, {"name": "PH3-B7", "lat": 29.969505, "lng": 38.602027},
+          {"name": "PH3-B9", "lat": 29.967827, "lng": 38.609796}, {"name": "PH3-B2", "lat": 29.968540, "lng": 38.581333}, {"name": "PH3-B4", "lat": 29.966359, "lng": 38.588841}, {"name": "PH3-B6", "lat": 29.964704, "lng": 38.596370}, {"name": "PH3-B8", "lat": 29.962764, "lng": 38.603991},
+          {"name": "PH3-B10", "lat": 29.961023, "lng": 38.611684}, {"name": "PH3-D4", "lat": 29.938016, "lng": 38.597079}, {"name": "PH3-D2", "lat": 29.939581, "lng": 38.589822}, {"name": "PH3-C6", "lat": 29.950316, "lng": 38.600707}, {"name": "PH3-C4", "lat": 29.952084, "lng": 38.592900},
+          {"name": "PH3-C2", "lat": 29.954102, "lng": 38.585523}, {"name": "PH3-C1", "lat": 29.960746, "lng": 38.583416}, {"name": "PH3-C3", "lat": 29.958741, "lng": 38.591284}, {"name": "PH3-C5", "lat": 29.957008, "lng": 38.598795}, {"name": "PH3-C7", "lat": 29.955172, "lng": 38.606205},
+          {"name": "PH3-C9", "lat": 29.953263, "lng": 38.613758}, {"name": "Industrial land", "lat": 29.954486, "lng": 38.515397}, {"name": "PH1-F7 store", "lat": 29.954486, "lng": 38.515397}, {"name": "PH3-D1", "lat": 29.946152, "lng": 38.587858}, {"name": "PH3-D3", "lat": 29.944491, "lng": 38.595500},
+          {"name": "PH3-D5", "lat": 29.942321, "lng": 38.602686}, {"name": "PH3-D7", "lat": 29.940582, "lng": 38.610688}, {"name": "PH3-D6", "lat": 29.935855, "lng": 38.604758}, {"name": "PH3-D8", "lat": 29.933627, "lng": 38.612297}, {"name": "PH3-E2", "lat": 29.929570, "lng": 38.599743},
+          {"name": "PH3-E1", "lat": 29.931743, "lng": 38.591825}, {"name": "PH1-F5", "lat": 29.949478, "lng": 38.517252}, {"name": "PH1-F3", "lat": 29.942502, "lng": 38.512216}, {"name": "PH1-F7", "lat": 29.955632, "lng": 38.521769}, {"name": "PH1-B7", "lat": 29.914964, "lng": 38.545770},
+          {"name": "PH1-B8", "lat": 29.922839, "lng": 38.545522}, {"name": "PH1-B4", "lat": 29.914161, "lng": 38.560805}, {"name": "PH1-B3", "lat": 29.906482, "lng": 38.561085}, {"name": "PH1-B5", "lat": 29.910953, "lng": 38.553246}, {"name": "PH1-C4", "lat": 29.938725, "lng": 38.551863},
+          {"name": "PH1-C6", "lat": 29.942506, "lng": 38.544255}, {"name": "PH1-F8", "lat": 29.959084, "lng": 38.513461}, {"name": "PH1-B14", "lat": 29.935277, "lng": 38.523054}, {"name": "PH1-C11", "lat": 29.944181, "lng": 38.523805}, {"name": "PH1-C9", "lat": 29.940226, "lng": 38.531221},
+          {"name": "PH1-C7", "lat": 29.936102, "lng": 38.539540}, {"name": "PH1-C5", "lat": 29.931862, "lng": 38.547189}, {"name": "PH1-C3", "lat": 29.927608, "lng": 38.554879}, {"name": "PH1-C8", "lat": 29.946700, "lng": 38.536765}, {"name": "PH1-C10", "lat": 29.950893, "lng": 38.528921},
+          {"name": "PH1-D6", "lat": 29.964204, "lng": 38.538059}, {"name": "PH1-E1", "lat": 29.971133, "lng": 38.543421}, {"name": "PH1-D2", "lat": 29.955594, "lng": 38.553091}, {"name": "PH1-G1", "lat": 29.943085, "lng": 38.491078}, {"name": "PH1-G2", "lat": 29.950221, "lng": 38.486936},
+          {"name": "PH1-G6", "lat": 29.963749, "lng": 38.496519}, {"name": "PH1-G8", "lat": 29.970199, "lng": 38.500966}, {"name": "PH1-G7", "lat": 29.963276, "lng": 38.505627}, {"name": "PH1-G9", "lat": 29.970137, "lng": 38.510252}, {"name": "PH1-G11", "lat": 29.976454, "lng": 38.515104},
+          {"name": "PH1-G18", "lat": 30.003179, "lng": 38.525065}, {"name": "PH1-F10", "lat": 29.965851, "lng": 38.518344}, {"name": "PH1-A14", "lat": 29.944097, "lng": 38.474649}, {"name": "PH1-A15", "lat": 29.948493, "lng": 38.467304}, {"name": "PH1-H3", "lat": 29.956348, "lng": 38.469935},
+          {"name": "PH1-D4", "lat": 29.960195, "lng": 38.546527}, {"name": "PH1-J1", "lat": 29.964854, "lng": 38.486474}, {"name": "PH1-J3", "lat": 29.969099, "lng": 38.479002}, {"name": "PH1-J5", "lat": 29.973163, "lng": 38.471266}, {"name": "PH1-J7", "lat": 29.977420, "lng": 38.463383},
+          {"name": "PH1-J9", "lat": 29.981675, "lng": 38.455933}, {"name": "PH1-H12", "lat": 29.980174, "lng": 38.439195}, {"name": "PH1-H10", "lat": 29.976918, "lng": 38.447515}, {"name": "PH1-H8", "lat": 29.972504, "lng": 38.454786}, {"name": "PH1-A17", "lat": 29.956543, "lng": 38.451645},
+          {"name": "PH1-A18", "lat": 29.960416, "lng": 38.444085}, {"name": "PH1-H9", "lat": 29.968935, "lng": 38.446881}, {"name": "PH1-H11", "lat": 29.972361, "lng": 38.439172}, {"name": "PH1-J10", "lat": 29.984242, "lng": 38.463932}, {"name": "PH1-M1", "lat": 29.991327, "lng": 38.468262},
+          {"name": "PH1-M2", "lat": 29.991448, "lng": 38.460312}, {"name": "PH1-M4", "lat": 29.997540, "lng": 38.464489}, {"name": "PH1-M7", "lat": 30.009548, "lng": 38.481455}, {"name": "PH1-M10", "lat": 30.015790, "lng": 38.477910}, {"name": "PH1-L4", "lat": 29.993620, "lng": 38.479963},
+          {"name": "PH1-L6", "lat": 29.999468, "lng": 38.484670}, {"name": "PH1-L8", "lat": 30.005987, "lng": 38.488962}, {"name": "PH1-L10", "lat": 30.012209, "lng": 38.493666}, {"name": "PH1-L9", "lat": 30.011288, "lng": 38.502018}, {"name": "PH1-K9", "lat": 29.998595, "lng": 38.511485},
+          {"name": "PH1-K8", "lat": 29.998580, "lng": 38.502981}, {"name": "PH1-K6", "lat": 29.992538, "lng": 38.498515}, {"name": "PH1-K7", "lat": 29.992038, "lng": 38.506834}, {"name": "NP34", "lat": 30.023175, "lng": 38.588463}, {"name": "NP36", "lat": 30.029765, "lng": 38.590900},
+          {"name": "NP45", "lat": 30.032354, "lng": 38.583252}, {"name": "NP47", "lat": 30.038461, "lng": 38.585633}, {"name": "NP38", "lat": 30.056486, "lng": 38.584405}, {"name": "NP40", "lat": 30.061081, "lng": 38.590832}, {"name": "NP46", "lat": 30.077659, "lng": 38.595433},
+          {"name": "NP48", "lat": 30.084968, "lng": 38.592863}, {"name": "NP44", "lat": 30.089968, "lng": 38.587002}, {"name": "NP42", "lat": 30.083328, "lng": 38.584680}, {"name": "NP31", "lat": 30.056646, "lng": 38.576157}, {"name": "NP29", "lat": 30.049967, "lng": 38.573607},
+          {"name": "NP26", "lat": 30.050279, "lng": 38.582321}, {"name": "NP24", "lat": 30.043814, "lng": 38.580084}, {"name": "NP27", "lat": 30.043469, "lng": 38.571487}, {"name": "NP22", "lat": 30.037235, "lng": 38.578170}, {"name": "NP25", "lat": 30.037044, "lng": 38.569329},
+          {"name": "NP13", "lat": 29.997154, "lng": 38.564602}, {"name": "NP15", "lat": 30.003819, "lng": 38.562480}, {"name": "NP17", "lat": 30.010652, "lng": 38.560321}, {"name": "NP19", "lat": 30.017056, "lng": 38.563401}, {"name": "NP21", "lat": 30.023892, "lng": 38.565471},
+          {"name": "NP23", "lat": 30.030441, "lng": 38.566911}, {"name": "NP20", "lat": 30.030029, "lng": 38.575532}, {"name": "NP18", "lat": 30.023882, "lng": 38.573610}, {"name": "NP16", "lat": 30.016903, "lng": 38.571245}, {"name": "NP14", "lat": 30.010302, "lng": 38.568622},
+          {"name": "NP12", "lat": 30.003864, "lng": 38.571467}, {"name": "PH3_A13", "lat": 29.938570, "lng": 38.581543}, {"name": "PH3_A14", "lat": 29.931946, "lng": 38.583733}, {"name": "PH3_A15", "lat": 29.925349, "lng": 38.585493}, {"name": "NP43", "lat": 30.025900, "lng": 38.581101},
+          {"name": "NP39", "lat": 30.012043, "lng": 38.576662}, {"name": "NP30", "lat": 30.009832, "lng": 38.584314}, {"name": "NP35", "lat": 30.001587, "lng": 38.589439}, {"name": "NP37", "lat": 30.003507, "lng": 38.581596}, {"name": "NP11", "lat": 29.992641, "lng": 38.570434},
+          {"name": "NP10", "lat": 29.998651, "lng": 38.575968}, {"name": "NP9", "lat": 29.990612, "lng": 38.578012}, {"name": "NP8", "lat": 29.996723, "lng": 38.583707}, {"name": "NP7", "lat": 29.988703, "lng": 38.585940}, {"name": "NP5", "lat": 29.987107, "lng": 38.593837},
+          {"name": "NP6", "lat": 29.993420, "lng": 38.595404}, {"name": "NP4", "lat": 29.991686, "lng": 38.602716}, {"name": "NP2", "lat": 29.990036, "lng": 38.610579}, {"name": "NP1", "lat": 29.983262, "lng": 38.608312}, {"name": "NP3", "lat": 29.984895, "lng": 38.601273},
+          {"name": "NP51", "lat": 30.011453, "lng": 38.591820}, {"name": "NP53", "lat": 30.018511, "lng": 38.593913}, {"name": "NP55", "lat": 30.018053, "lng": 38.602049}, {"name": "NP49", "lat": 30.011763, "lng": 38.600282}, {"name": "NP28", "lat": 30.004614, "lng": 38.597860},
+          {"name": "NP33", "lat": 29.998169, "lng": 38.600692}, {"name": "NP50", "lat": 30.000598, "lng": 38.608567}, {"name": "NP52", "lat": 30.007130, "lng": 38.606427}, {"name": "G10", "lat": 29.976764, "lng": 38.506457}, {"name": "A22", "lat": 29.977137, "lng": 38.414025},
+          {"name": "J4", "lat": 29.974118, "lng": 38.485465}, {"name": "K1", "lat": 29.974383, "lng": 38.494187}, {"name": "K2", "lat": 29.980683, "lng": 38.488723}, {"name": "K10", "lat": 30.005561, "lng": 38.507215}, {"name": "K11", "lat": 30.004841, "lng": 38.515504},
+          {"name": "L1", "lat": 29.986564, "lng": 38.484310}, {"name": "King Salman Bin Abdulaziz Royal Reserve", "lat": 30.005293, "lng": 38.497403}, {"name": "L7", "lat": 30.005293, "lng": 38.497403}, {"name": "Farmland", "lat": 29.998655, "lng": 38.492463}, {"name": "L5", "lat": 29.998655, "lng": 38.492463},
+          {"name": "L3", "lat": 29.992448, "lng": 38.488689}, {"name": "L2", "lat": 29.987350, "lng": 38.475599}, {"name": "M3", "lat": 29.998218, "lng": 38.473073}, {"name": "M5", "lat": 30.003374, "lng": 38.477272}, {"name": "M9", "lat": 30.016537, "lng": 38.485251},
+          {"name": "M8", "lat": 30.010106, "lng": 38.473605}, {"name": "M6", "lat": 30.003941, "lng": 38.468798}, {"name": "N1", "lat": 29.988689, "lng": 38.448861}, {"name": "N2", "lat": 29.988232, "lng": 38.439036}, {"name": "N3", "lat": 29.994149, "lng": 38.452566},
+          {"name": "N5", "lat": 30.000938, "lng": 38.455978}, {"name": "N7", "lat": 30.007318, "lng": 38.461174}, {"name": "N9", "lat": 30.013047, "lng": 38.465509}, {"name": "N11", "lat": 30.019389, "lng": 38.470486}, {"name": "N12", "lat": 30.019148, "lng": 38.461330},
+          {"name": "N10", "lat": 30.013598, "lng": 38.456914}, {"name": "N4", "lat": 29.994896, "lng": 38.444596}, {"name": "N6", "lat": 30.000485, "lng": 38.447968}, {"name": "N8", "lat": 30.007626, "lng": 38.452790}, {"name": "P1", "lat": 29.983351, "lng": 38.425211},
+          {"name": "P3", "lat": 29.989172, "lng": 38.429464}, {"name": "P5", "lat": 29.995697, "lng": 38.434055}, {"name": "P7", "lat": 30.001184, "lng": 38.438135}, {"name": "P9", "lat": 30.007913, "lng": 38.443277}, {"name": "P11", "lat": 30.014310, "lng": 38.447394},
+          {"name": "P13", "lat": 30.020059, "lng": 38.451587}, {"name": "P10", "lat": 30.008491, "lng": 38.435079}, {"name": "P8", "lat": 30.001826, "lng": 38.430375}, {"name": "P6", "lat": 29.995816, "lng": 38.425882}, {"name": "P4", "lat": 29.989681, "lng": 38.420921},
+          {"name": "A32", "lat": 30.032645, "lng": 38.449629}, {"name": "A33", "lat": 30.030305, "lng": 38.457428}, {"name": "A34", "lat": 30.028098, "lng": 38.465818}, {"name": "A46", "lat": 29.994505, "lng": 38.548470}, {"name": "A45", "lat": 30.001148, "lng": 38.544586},
+          {"name": "A44", "lat": 30.008872, "lng": 38.542483}, {"name": "A42", "lat": 30.012385, "lng": 38.529580}, {"name": "A41", "lat": 30.014165, "lng": 38.521992}, {"name": "A40", "lat": 30.016235, "lng": 38.513851}, {"name": "A39", "lat": 30.018239, "lng": 38.505679},
+          {"name": "A35", "lat": 30.026654, "lng": 38.473364}, {"name": "A36", "lat": 30.024608, "lng": 38.481152}, {"name": "A37", "lat": 30.022436, "lng": 38.489642}, {"name": "A38", "lat": 30.020121, "lng": 38.497518}, {"name": "F4", "lat": 29.946090, "lng": 38.503989},
+          {"name": "F18", "lat": 29.991888, "lng": 38.537204}, {"name": "F16", "lat": 29.985930, "lng": 38.532976}, {"name": "F14", "lat": 29.978809, "lng": 38.528069}, {"name": "F12", "lat": 29.972241, "lng": 38.523063}, {"name": "G3", "lat": 29.949838, "lng": 38.495431},
+          {"name": "G5", "lat": 29.957118, "lng": 38.500146}, {"name": "G4", "lat": 29.956766, "lng": 38.491705}, {"name": "G12", "lat": 29.983557, "lng": 38.511073}, {"name": "G14", "lat": 29.990182, "lng": 38.515019}, {"name": "G16", "lat": 29.996901, "lng": 38.520396},
+          {"name": "G13", "lat": 29.982671, "lng": 38.519768}, {"name": "G15", "lat": 29.989754, "lng": 38.524479}, {"name": "G17", "lat": 29.996453, "lng": 38.529751}, {"name": "G19", "lat": 30.002602, "lng": 38.535279}, {"name": "J6", "lat": 29.977622, "lng": 38.478470},
+          {"name": "J8", "lat": 29.980738, "lng": 38.471180}, {"name": "H6", "lat": 29.968493, "lng": 38.462342}, {"name": "H7", "lat": 29.964453, "lng": 38.453730}, {"name": "H5", "lat": 29.960189, "lng": 38.462700}, {"name": "H1", "lat": 29.952099, "lng": 38.477528},
+          {"name": "H4", "lat": 29.963898, "lng": 38.469709}, {"name": "H2", "lat": 29.959674, "lng": 38.477937}, {"name": "K3", "lat": 29.980616, "lng": 38.498609}, {"name": "K5", "lat": 29.986653, "lng": 38.502596}, {"name": "A16", "lat": 29.952662, "lng": 38.459844},
+          {"name": "A19", "lat": 29.965017, "lng": 38.436695}, {"name": "A20", "lat": 29.968905, "lng": 38.428840}, {"name": "A21", "lat": 29.973316, "lng": 38.421005}, {"name": "H13", "lat": 29.976293, "lng": 38.431560}, {"name": "D7", "lat": 29.957472, "lng": 38.534031},
+          {"name": "D3", "lat": 29.949081, "lng": 38.549405}, {"name": "D1", "lat": 29.944920, "lng": 38.556451}, {"name": "K4", "lat": 29.986553, "lng": 38.494071}, {"name": "F6", "lat": 29.952052, "lng": 38.508678}, {"name": "F11", "lat": 29.969158, "lng": 38.531096},
+          {"name": "F13", "lat": 29.975836, "lng": 38.536026}, {"name": "F15", "lat": 29.982249, "lng": 38.540890}, {"name": "مصنع البلك", "lat": 30.011235, "lng": 38.545894}, {"name": "W55", "lat": 30.006377, "lng": 38.548229}, {"name": "start A44", "lat": 30.007381, "lng": 38.545811}
+        ]));
+
+        // بناء ومكاملة قاعدة البيانات الهندسية الموحدة
+        let rawFarmData = [];
+
+        // تحويل وتمرير الآبار الـ 196
+        excelWellsData.forEach(w => {
+            let cropType = "غير محدد";
+            if (w.crop) {
+                if (w.crop.toLowerCase().includes("wheat")) cropType = "قمح";
+                else if (w.crop.toLowerCase().includes("tomato")) cropType = "طماطم";
+                else if (w.crop.toLowerCase().includes("olive")) cropType = "زيتون";
+            }
+            rawFarmData.push({
+                name: `بئر ${w.well} (مشروع ${w.ph})`,
+                depth: w.depth ? `${w.depth}م` : "302م",
+                engine: (w.engine && w.engine !== "-") ? `${w.engine} ${w.model || ''}` : "غير محدد",
+                pivots: w.pivot || "-",
+                area: w.area ? `${w.area} هكتار` : "-",
+                desc: `العمق: ${w.depth}م | الرشاش: ${w.pivot} | المحصول: ${w.crop} | الموتور: ${w.engine}`,
+                lat: parseFloat(w.lat),
+                lng: parseFloat(w.lng),
+                crop: cropType,
+                type: "بئر"
+            });
+        });
+
+        // تحويل وتمرير مواقع الحقول والرشاشات
+        kmzExcelLocations.forEach(f => {
+            let cropType = "قمح";
+            let pivotCode = f.name.replace("PH1-", "").replace("PH3-", "").replace("PH3_", "");
+            if (tomatoPivots.some(t => f.name.includes(t) || pivotCode === t)) {
+                cropType = "طماطم";
+            } else if (f.name.toLowerCase().includes("olive") || f.name.toLowerCase().includes("زيتون")) {
+                cropType = "زيتون";
+            }
+
+            rawFarmData.push({
+                name: `رشاش/حقل ${f.name}`,
+                depth: "-",
+                engine: "-",
+                pivots: f.name,
+                area: "50 هكتار صافي",
+                desc: `المحصول: ${cropType} | اسم الرشاش: ${f.name}`,
+                lat: parseFloat(f.lat),
+                lng: parseFloat(f.lng),
+                crop: cropType,
+                type: "حقل/رشاش"
+            });
+        });
+
+        // التوجيه والقيادة المباشرة عبر Google Maps
+        function openGoogleMapsNav(lat, lng) {
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+            window.open(url, '_blank');
+        }
+
+        // رندر وعرض البيانات على الخريطة والقائمة الجانبية
+        function renderFarmData() {
+            wellsLayerGroup.clearLayers();
+            fieldsLayerGroup.clearLayers();
+
+            let searchText = document.getElementById('searchInput').value.toLowerCase();
+            let showWells = document.getElementById('chkShowWells').checked;
+            let showFields = document.getElementById('chkShowFields').checked;
+
+            let selectedCrops = Array.from(document.querySelectorAll('#sidePanel input[type="checkbox"]:not([value="الكل"])'))
+                .filter(el => el.checked).map(el => el.value);
+
+            let counts = { all: 0, قمح: 0, طماطم: 0, زيتون: 0, غير_محدد: 0, wells: 0, fields: 0 };
+            let listHTML = '';
+
+            rawFarmData.forEach((item, index) => {
+                let isWell = item.type === "بئر" || item.name.includes("بئر");
+                if (isWell) counts.wells++; else counts.fields++;
+
+                let matchesSearch = item.name.toLowerCase().includes(searchText) || (item.desc && item.desc.toLowerCase().includes(searchText));
+                let matchesCrop = selectedCrops.includes(item.crop);
+
+                counts.all++;
+                if (item.crop === 'قمح') counts.قمح++;
+                else if (item.crop === 'طماطم') counts.طماطم++;
+                else if (item.crop === 'زيتون') counts.زيتون++;
+                else counts.غير_محدد++;
+
+                // تصفية العرض بناءً على خيارات النوع والمحصول والبحث
+                let shouldDisplay = matchesSearch && (selectedCrops.length === 0 || matchesCrop) && ((isWell && showWells) || (!isWell && showFields));
+
+                if (shouldDisplay) {
+                    let marker;
+                    
+                    if (isWell) {
+                        // إنشاء أيقونة قطرة ماء للآبار
+                        let wellIcon = L.divIcon({
+                            className: 'custom-well-marker',
+                            html: `<div class="well-pin-icon" style="width:24px; height:24px;"><span>💧</span></div>`,
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 24]
+                        });
+
+                        marker = L.marker([item.lat, item.lng], { icon: wellIcon }).addTo(wellsLayerGroup);
+                        
+                        // نافذة منفذة خاصة بالبئر
+                        marker.bindPopup(`
+                            <div class="p-2 text-right dir-rtl font-cairo">
+                                <div class="flex items-center gap-1 text-blue-700 border-b pb-1 mb-2">
+                                    <span class="text-base">💧</span>
+                                    <h3 class="font-bold text-sm text-slate-900">${item.name}</h3>
+                                </div>
+                                <div class="space-y-1 text-xs text-slate-700 font-semibold">
+                                    <p>📏 <b>العمق:</b> <span class="text-blue-600 font-bold">${item.depth || '302م'}</span></p>
+                                    <p>⚙️ <b>نوع المحرك والموديل:</b> <span class="text-slate-900 font-bold">${item.engine || 'غير محدد'}</span></p>
+                                    <p>🔄 <b>الرشاشات المعتمدة:</b> <span class="text-emerald-700 font-bold">${item.pivots || item.desc || '-'}</span></p>
+                                    <p>🌱 <b>المحصول المباشر:</b> <span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px]">${item.crop}</span></p>
+                                </div>
+                                <div class="mt-3 pt-2 border-t flex items-center justify-between gap-1">
+                                    <button onclick="openGoogleMapsNav(${item.lat}, ${item.lng})" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow">
+                                        🧭 قيادة للموقع
+                                    </button>
+                                    <div class="flex gap-1">
+                                        <button onclick="editFarmItem(${index})" class="bg-slate-200 text-slate-800 px-2 py-1 rounded-lg text-xs font-bold">تعديل</button>
+                                        <button onclick="deleteFarmItem(${index})" class="bg-red-600 text-white px-2 py-1 rounded-lg text-xs font-bold">حذف</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `);
+                    } else {
+                        // إنشاء أيقونة للحقول والرشاشات
+                        let cropColor = item.crop === 'قمح' ? '#d97706' : item.crop === 'طماطم' ? '#dc2626' : item.crop === 'زيتون' ? '#16a34a' : '#4b5563';
+                        let fieldIcon = L.divIcon({
+                            className: 'custom-field-marker',
+                            html: `<div class="field-pin-icon" style="background-color:${cropColor}; width:20px; height:20px;">🌿</div>`,
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        });
+
+                        marker = L.marker([item.lat, item.lng], { icon: fieldIcon }).addTo(fieldsLayerGroup);
+                        
+                        // نافذة منفذة خاصة بالحقل/الرشاش
+                        marker.bindPopup(`
+                            <div class="p-2 text-right dir-rtl font-cairo">
+                                <div class="flex items-center gap-1 border-b pb-1 mb-2" style="color:${cropColor};">
+                                    <span class="text-base">🌿</span>
+                                    <h3 class="font-bold text-sm text-slate-900">${item.name}</h3>
+                                </div>
+                                <div class="space-y-1 text-xs text-slate-700 font-semibold">
+                                    <p>📐 <b>المساحة الصافية:</b> <span class="text-emerald-600 font-bold">${item.area || '50 هكتار'}</span></p>
+                                    <p>🌾 <b>نوع المحصول:</b> <span class="px-1.5 py-0.5 rounded text-[10px] text-white font-bold" style="background-color:${cropColor};">${item.crop}</span></p>
+                                    <p>📝 <b>ملاحظات:</b> <span class="text-slate-500">${item.desc || '-'}</span></p>
+                                </div>
+                                <div class="mt-3 pt-2 border-t flex items-center justify-between gap-1">
+                                    <button onclick="openGoogleMapsNav(${item.lat}, ${item.lng})" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow">
+                                        🧭 قيادة للموقع
+                                    </button>
+                                    <div class="flex gap-1">
+                                        <button onclick="editFarmItem(${index})" class="bg-slate-200 text-slate-800 px-2 py-1 rounded-lg text-xs font-bold">تعديل</button>
+                                        <button onclick="deleteFarmItem(${index})" class="bg-red-600 text-white px-2 py-1 rounded-lg text-xs font-bold">حذف</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `);
+                    }
+
+                    // تجهيز قائمة العناصر الجانبية المنسدلة مع زر حذف وتوجيه مباشر
+                    listHTML += `
+                        <div class="p-2 hover:bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between transition">
+                            <div onclick="zoomToPoint(${item.lat}, ${item.lng})" class="cursor-pointer flex-1">
+                                <div class="flex items-center gap-1">
+                                    <span>${isWell ? '💧' : '🌿'}</span>
+                                    <span class="font-bold text-slate-800 text-xs">${item.name}</span>
+                                </div>
+                                <p class="text-slate-500 text-[10px] truncate w-40 mt-0.5">${item.desc || item.crop}</p>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="openGoogleMapsNav(${item.lat}, ${item.lng})" title="توجيه عبر جوجل ماب" class="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">
+                                    <i data-lucide="navigation" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="deleteFarmItem(${index})" title="حذف" class="p-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            // تحديث العدادات الرقمية
+            document.getElementById('cnt-all').innerText = counts.all;
+            document.getElementById('cnt-wheat').innerText = counts.قمح;
+            document.getElementById('cnt-tomato').innerText = counts.طماطم;
+            document.getElementById('cnt-olive').innerText = counts.زيتون;
+            document.getElementById('cnt-wells-type').innerText = counts.wells;
+            document.getElementById('cnt-fields-type').innerText = counts.fields;
+            document.getElementById('itemsList').innerHTML = listHTML || '<p class="text-center text-xs text-slate-400 py-4">لا توجد نتائج مطابقة</p>';
+            
+            lucide.createIcons();
+        }
+
+        function toggleCropFilter(type, el) {
+            let checkboxes = document.querySelectorAll('#sidePanel input[type="checkbox"]:not([value="الكل"]):not(#chkShowWells):not(#chkShowFields)');
+            checkboxes.forEach(cb => cb.checked = el.checked);
+            renderFarmData();
+        }
+
+        function toggleSidePanel() { document.getElementById('sidePanel').classList.toggle('translate-x-full'); }
+
+        function zoomToPoint(lat, lng) { 
+            map.flyTo([lat, lng], 16, { animate: true, duration: 1.2 });
+            if(window.innerWidth < 768) toggleSidePanel();
+        }
+
+        // إضافة معلم جديد مع التمييز بين البئر والحقل
+        map.on('click', function(e) {
+            if (currentMode) return;
+            let isWell = confirm("هل تريد إضافة بئر جديد؟ (اضغط OK للبئر، أو Cancel للحقل/الرشاش)");
+            let name = prompt(isWell ? "أدخل رقم/اسم البئر الجديد:" : "أدخل اسم الرشاش/الحقل الجديد:");
+            if (!name) return;
+            
+            let crop = prompt("حدد المحصول (قمح، طماطم، زيتون، غير محدد):", "قمح");
+            let desc = prompt("أدخل الملاحظات:", "إضافة جديدة عبر اللمس");
+
+            rawFarmData.push({
+                name: name,
+                desc: desc || "لا يوجد وصف",
+                lat: e.latlng.lat,
+                lng: e.latlng.lng,
+                crop: crop || "غير محدد",
+                type: isWell ? "بئر" : "حقل/رشاش",
+                depth: isWell ? "302م" : "-",
+                engine: isWell ? "ENGINE VOLVO" : "-",
+                area: isWell ? "-" : "50 هكتار"
+            });
+            renderFarmData();
+        });
+
+        function deleteFarmItem(index) {
+            if (confirm("هل أنت متأكد من حذف هذا العنصر؟")) {
+                rawFarmData.splice(index, 1);
+                renderFarmData();
+            }
+        }
+
+        function editFarmItem(index) {
+            let item = rawFarmData[index];
+            let newName = prompt("تعديل الاسم:", item.name);
+            if (newName) item.name = newName;
+            let newDesc = prompt("تعديل الوصف والملاحظات:", item.desc);
+            if (newDesc !== null) item.desc = newDesc;
+            renderFarmData();
+        }
+
+        // البحث الصوتي 🎤
+        function startVoiceSearch() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert("البحث الصوتي غير مدعوم في هذا المتصفح.");
+                return;
+            }
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'ar-SA';
+            
+            const statusEl = document.getElementById('voiceStatus');
+            statusEl.classList.remove('hidden');
+            
+            recognition.onresult = function(event) {
+                let speechResult = event.results[0][0].transcript;
+                document.getElementById('searchInput').value = speechResult;
+                statusEl.classList.add('hidden');
+                renderFarmData();
+            };
+            recognition.onerror = function() { statusEl.classList.add('hidden'); };
+            recognition.onend = function() { statusEl.classList.add('hidden'); };
+            recognition.start();
+        }
+
+        // تصدير ملف KML
+        function exportKML() {
+            let kmlContent = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>الوطنية الزراعية - الآبار والحقول</name>\n`;
+            rawFarmData.forEach(item => {
+                kmlContent += `  <Placemark>\n    <name><![CDATA[${item.name}]]></name>\n    <description><![CDATA[${item.desc} | المحصول: ${item.crop} | النوع: ${item.type}]]></description>\n    <Point>\n      <coordinates>${item.lng},${item.lat},0</coordinates>\n    </Point>\n  </Placemark>\n`;
+            });
+            kmlContent += `</Document>\n</kml>`;
+            
+            let blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+            let link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'Watania_Jouf_Data.kml';
+            link.click();
+        }
+
+        // البوصلة
+        map.on('rotate', function() {
+            const bearing = map.getBearing();
+            document.getElementById('compassSvg').style.transform = `rotate(${-bearing}deg)`;
+        });
+
+        function resetNorth() { map.setBearing(0); }
+
+        // =============== 4. أدوات القياس الهندسي ===============
+        let currentMode = null;
+        let measurePoints = [];
+        let circleCenter = null;
+        let tempCircle = null;
+
+        function setMeasureMode(mode) {
+            clearMeasurement();
+            currentMode = mode;
+            document.querySelectorAll('.measure-btn').forEach(btn => btn.classList.remove('bg-blue-100', 'border-blue-500'));
+            
+            if (mode === 'distance') {
+                document.getElementById('btnMeasureDist').classList.add('bg-blue-100', 'border-blue-500');
+            } else if (mode === 'area') {
+                document.getElementById('btnMeasureArea').classList.add('bg-blue-100', 'border-blue-500');
+            } else if (mode === 'circle') {
+                document.getElementById('btnMeasureCircle').classList.add('bg-blue-100', 'border-blue-500');
+            }
+        }
+
+        map.on('click', function(e) {
+            if (!currentMode) return;
+            const latlng = e.latlng;
+
+            if (currentMode === 'distance' || currentMode === 'area') {
+                measurePoints.push([latlng.lng, latlng.lat]);
+                renderMeasurement();
+            } else if (currentMode === 'circle') {
+                if (!circleCenter) {
+                    circleCenter = latlng;
+                    L.circleMarker(latlng, { radius: 5, color: '#d97706', fillColor: '#fff', fillOpacity: 1 }).addTo(drawLayerGroup);
+                } else {
+                    const radiusMeters = circleCenter.distanceTo(latlng);
+                    drawCircleMeasurement(circleCenter, radiusMeters);
+                    circleCenter = null;
+                }
+            }
+        });
+
+        map.on('mousemove', function(e) {
+            if (currentMode === 'circle' && circleCenter) {
+                const radiusMeters = circleCenter.distanceTo(e.latlng);
+                if (tempCircle) drawLayerGroup.removeLayer(tempCircle);
+                tempCircle = L.circle(circleCenter, { radius: radiusMeters, color: '#d97706', fillColor: '#fbbf24', fillOpacity: 0.2, weight: 2 }).addTo(drawLayerGroup);
+            }
+        });
+
+        function renderMeasurement() {
+            drawLayerGroup.clearLayers();
+            if (measurePoints.length === 0) return;
+
+            measurePoints.forEach(pt => {
+                L.circleMarker([pt[1], pt[0]], { radius: 5, color: '#2563eb', fillColor: '#fff', fillOpacity: 1 }).addTo(drawLayerGroup);
+            });
+
+            const resultsCard = document.getElementById('measureResultsCard');
+            const valuesDiv = document.getElementById('measureValues');
+            resultsCard.classList.remove('hidden');
+
+            if (currentMode === 'distance' && measurePoints.length >= 2) {
+                const line = turf.lineString(measurePoints);
+                const distanceMeters = turf.length(line, { units: 'meters' });
+                L.polyline(measurePoints.map(p => [p[1], p[0]]), { color: '#2563eb', weight: 3, dashArray: '6, 6' }).addTo(drawLayerGroup);
+
+                valuesDiv.innerHTML = `
+                    <p>📏 <b>المسافة الإجمالية:</b></p>
+                    <p class="text-blue-700 text-sm font-extrabold">${distanceMeters.toFixed(2)} متر (m)</p>
+                    <p class="text-slate-600 font-semibold">${(distanceMeters/1000).toFixed(3)} كم (km)</p>
+                `;
+            } else if (currentMode === 'area' && measurePoints.length >= 3) {
+                const closedPoints = [...measurePoints, measurePoints[0]];
+                const polygon = turf.polygon([closedPoints]);
+                const areaSqMeters = turf.area(polygon);
+
+                L.polygon(measurePoints.map(p => [p[1], p[0]]), { color: '#10b981', fillColor: '#34d399', fillOpacity: 0.3 }).addTo(drawLayerGroup);
+
+                valuesDiv.innerHTML = `
+                    <p>📐 <b>مساحة المضلع:</b></p>
+                    <p class="text-emerald-700 text-sm font-extrabold">${(areaSqMeters / 10000).toFixed(2)} هكتار (ha)</p>
+                    <p class="text-slate-600 font-semibold">${areaSqMeters.toLocaleString('ar-EG', {maximumFractionDigits: 1})} م²</p>
+                `;
+            }
+        }
+
+        function drawCircleMeasurement(center, radiusMeters) {
+            drawLayerGroup.clearLayers();
+            L.circle(center, { radius: radiusMeters, color: '#d97706', fillColor: '#fbbf24', fillOpacity: 0.25, weight: 2 }).addTo(drawLayerGroup);
+            L.circleMarker(center, { radius: 5, color: '#d97706' }).addTo(drawLayerGroup);
+
+            const areaSqMeters = Math.PI * Math.pow(radiusMeters, 2);
+
+            const resultsCard = document.getElementById('measureResultsCard');
+            const valuesDiv = document.getElementById('measureValues');
+            resultsCard.classList.remove('hidden');
+
+            valuesDiv.innerHTML = `
+                <p>⭕ <b>بيانات الدائرة:</b></p>
+                <p><b>نصف القطر:</b> ${radiusMeters.toFixed(1)} متر</p>
+                <p class="text-amber-700 text-sm font-extrabold">${(areaSqMeters / 10000).toFixed(2)} هكتار (ha)</p>
+                <p class="text-slate-600 font-semibold">${areaSqMeters.toLocaleString('ar-EG', {maximumFractionDigits: 1})} م²</p>
+            `;
+        }
+
+        function clearMeasurement() {
+            measurePoints = [];
+            circleCenter = null;
+            tempCircle = null;
+            drawLayerGroup.clearLayers();
+            document.getElementById('measureResultsCard').classList.add('hidden');
+            document.querySelectorAll('.measure-btn').forEach(btn => btn.classList.remove('bg-blue-100', 'border-blue-500'));
+            currentMode = null;
+        }
+
+        // =============== 5. الجي بي إس والتتبع المباشر ===============
+        let gpsMarker = null;
+        let accuracyCircle = null;
+        let watchId = null;
+
+        function getLocation() {
+            if (!navigator.geolocation) {
+                alert("متصفحك لا يدعم خدمات الجي بي إس.");
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(updateLocation, function(err) {
+                alert("تعذر الوصول لموقعك الحالي، يُرجى تأكيد منح صلاحية الموقع (GPS).");
+            }, { enableHighAccuracy: true, timeout: 15000 });
+        }
+
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+
+            const latLng = [lat, lng];
+            map.flyTo(latLng, 16, { animate: true, duration: 1.5 });
+
+            if (gpsMarker) {
+                gpsMarker.setLatLng(latLng);
+                accuracyCircle.setLatLng(latLng);
+                accuracyCircle.setRadius(accuracy);
+            } else {
+                const customIcon = L.divIcon({
+                    className: 'custom-pin',
+                    html: `<div class="relative flex items-center justify-center">
+                            <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span>
+                            <div class="bg-blue-600 w-5 h-5 rounded-full border-2 border-white shadow-lg"></div>
+                           </div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+
+                gpsMarker = L.marker(latLng, { icon: customIcon }).addTo(map).bindPopup("<b>موقعك الحالي</b>").openPopup();
+                accuracyCircle = L.circle(latLng, { radius: accuracy, color: '#3b82f6', fillColor: '#60a5fa', fillOpacity: 0.15, weight: 1.5 }).addTo(map);
+            }
+        }
+
+        function toggleWatch() {
+            const btn = document.getElementById('watchBtn');
+            if (watchId === null) {
+                if (!navigator.geolocation) return;
+                watchId = navigator.geolocation.watchPosition(updateLocation, function(){}, { enableHighAccuracy: true });
+                btn.className = "flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-xl font-bold text-xs shadow-md transition-all";
+                btn.innerHTML = `<i data-lucide="square" class="w-4 h-4"></i> إيقاف التتبع`;
+                lucide.createIcons();
+            } else {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                btn.className = "flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white py-2 px-3 rounded-xl font-bold text-xs shadow-md transition-all";
+                btn.innerHTML = `<i data-lucide="navigation" class="w-4 h-4"></i> تتبع مباشر`;
+                lucide.createIcons();
+            }
+        }
+
+        renderFarmData();
+    </script>
+</body>
+</html>
